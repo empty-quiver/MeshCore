@@ -306,6 +306,7 @@ bool BaseChatMesh::onContactPathRecv(ContactInfo& from, uint8_t* in_path, uint8_
   // FUTURE: could store multiple out_paths per contact, and try to find which is the 'best'(?)
   from.out_path_len = mesh::Packet::copyPath(from.out_path, out_path, out_path_len);  // store a copy of path, for sendDirect()
   from.lastmod = getRTCClock()->getCurrentTime();
+  from.path_set_timestamp = from.lastmod;   // record when the path was set, for TTL checks
 
   onContactPathUpdated(from);
 
@@ -421,8 +422,18 @@ int  BaseChatMesh::sendMessage(const ContactInfo& recipient, uint32_t timestamp,
 
   uint32_t t = _radio->getEstAirtimeFor(pkt->getRawLength());
 
+  // Treat a cached path older than PATH_TTL_SECS as unknown (force re-flood).
+  // path_set_timestamp == 0 means "legacy unknown-age" - trust it.
+  bool path_stale = false;
+  if (recipient.out_path_len != OUT_PATH_UNKNOWN && recipient.path_set_timestamp != 0) {
+    uint32_t now = getRTCClock()->getCurrentTime();
+    if (now > recipient.path_set_timestamp + PATH_TTL_SECS) {
+      path_stale = true;
+    }
+  }
+
   int rc;
-  if (recipient.out_path_len == OUT_PATH_UNKNOWN) {
+  if (recipient.out_path_len == OUT_PATH_UNKNOWN || path_stale) {
     sendFloodScoped(recipient, pkt);
     txt_send_timeout = futureMillis(est_timeout = calcFloodTimeoutMillisFor(t));
     rc = MSG_SEND_SENT_FLOOD;
@@ -447,8 +458,17 @@ int  BaseChatMesh::sendCommandData(const ContactInfo& recipient, uint32_t timest
   if (pkt == NULL) return MSG_SEND_FAILED;
 
   uint32_t t = _radio->getEstAirtimeFor(pkt->getRawLength());
+
+  bool path_stale = false;
+  if (recipient.out_path_len != OUT_PATH_UNKNOWN && recipient.path_set_timestamp != 0) {
+    uint32_t now = getRTCClock()->getCurrentTime();
+    if (now > recipient.path_set_timestamp + PATH_TTL_SECS) {
+      path_stale = true;
+    }
+  }
+
   int rc;
-  if (recipient.out_path_len == OUT_PATH_UNKNOWN) {
+  if (recipient.out_path_len == OUT_PATH_UNKNOWN || path_stale) {
     sendFloodScoped(recipient, pkt);
     txt_send_timeout = futureMillis(est_timeout = calcFloodTimeoutMillisFor(t));
     rc = MSG_SEND_SENT_FLOOD;
@@ -778,6 +798,7 @@ void BaseChatMesh::checkConnections() {
 
 void BaseChatMesh::resetPathTo(ContactInfo& recipient) {
   recipient.out_path_len = OUT_PATH_UNKNOWN;
+  recipient.path_set_timestamp = 0;
 }
 
 static ContactInfo* table;  // pass via global :-(

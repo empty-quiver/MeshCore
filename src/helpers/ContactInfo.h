@@ -5,6 +5,13 @@
 
 #define OUT_PATH_UNKNOWN   0xFF
 
+// Path-cache time-to-live. Cached out_path entries older than this are
+// treated as unknown on next send (forcing a re-flood). Override at compile
+// time. Default 4 hours.
+#ifndef PATH_TTL_SECS
+  #define PATH_TTL_SECS  (4 * 60 * 60)
+#endif
+
 struct ContactInfo {
   mesh::Identity id;
   char name[32];
@@ -15,6 +22,7 @@ struct ContactInfo {
   uint8_t out_path[MAX_PATH_SIZE];
   uint32_t last_advert_timestamp;   // by THEIR clock
   uint32_t lastmod;  // by OUR clock
+  uint32_t path_set_timestamp;      // RTC seconds when out_path was last set; 0 = unknown age (legacy)
   int32_t gps_lat, gps_lon;    // 6 dec places
   uint32_t sync_since;
 
